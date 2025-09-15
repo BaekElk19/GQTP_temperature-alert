@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ mo }} - 温度统计分析</title>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+</head>
+<body>
+    <h2>订单 {{ mo }} 的温度统计分析</h2>
+    <p>共 {{ sns|length }} 台设备，温度阈值: {{ threshold }} ℃</p>
+
+    <!-- 直方图 -->
+    <h3>最高温度分布直方图</h3>
+    <div id="hist" style="width:95%;height:400px;"></div>
+
+    <script>
+    var traceHist = {
+        x: {{ temps|tojson }},
+        type: 'histogram',
+        marker: { color: 'steelblue' },
+        name: '最高温度分布'
+    };
+    var layoutHist = {
+        title: '最高温度直方图',
+        xaxis: { title: '最高温度 (℃)' },
+        yaxis: { title: '设备数量' },
+        shapes: [
+            {
+                type: 'line',
+                x0: {{ threshold }},
+                x1: {{ threshold }},
+                y0: 0,
+                y1: 1,
+                xref: 'x',
+                yref: 'paper',
+                line: { color: 'red', width: 2, dash: 'dot' }
+            }
+        ]
+    };
+    Plotly.newPlot('hist', [traceHist], layoutHist, {responsive: true});
+    </script>
+
+    <!-- 散点图 -->
+    <h3>升温速度 vs 最高温度（前20分钟）</h3>
+    <div id="scatter" style="width:95%;height:400px;"></div>
+
+    <script>
+        var traceScatter = {
+            x: {{ scatter_x|tojson }},
+            y: {{ scatter_y|tojson }},
+            mode: 'markers',
+            type: 'scatter',
+            marker: { size: 8, color: 'orange', opacity: 0.7 },
+            text: {{ scatter_labels|tojson }},   // Hover 显示 SN
+            hovertemplate: "SN: %{text}<br>升温速度: %{x:.2f} ℃/分钟<br>最高温度: %{y} ℃<extra></extra>",
+            name: '设备'
+        };
+        
+    var layoutScatter = {
+        title: '升温速度 vs 最高温度',
+        xaxis: { title: '升温速度 (℃/分钟)' },
+        yaxis: { title: '最高温度 (℃)' },
+        shapes: [
+            {
+                type: 'line',
+                x0: 0,
+                x1: 1,
+                y0: {{ threshold }},
+                y1: {{ threshold }},
+                xref: 'paper',
+                yref: 'y',
+                line: { color: 'red', width: 2, dash: 'dot' }
+            }
+        ]
+    };
+    Plotly.newPlot('scatter', [traceScatter], layoutScatter, {responsive: true});
+    </script>
+
+    <p style="margin:20px;">
+        <a href="/{{ mo }}">返回 SN 列表</a>
+    </p>
+</body>
+</html>

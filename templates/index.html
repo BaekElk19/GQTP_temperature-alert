@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>MO订单列表</title>
+    <style>
+        table { border-collapse: collapse; width: 95%; margin: 20px auto; font-size: 14px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        th { background: #f0f0f0; }
+        tr:nth-child(even) { background: #fafafa; }
+        tr:hover { background: #f5f5f5; }
+        .warn { color: red; font-weight: bold; }
+        .ok { color: green; }
+        .row-warn { background-color: #ffeaea !important; }  /* 整行高亮 */
+    </style>
+</head>
+<body>
+    <h2 style="margin-left:20px;">MO订单列表</h2>
+    <table>
+        <tr>
+            <th>订单号</th>
+            <th>设备总数</th>
+            <th>最新心跳时间</th>
+            <th>异常 SN 数量</th>
+            <th>状态</th>
+        </tr>
+        {% for row in mos %}
+        <tr class="{% if row.warn_count > 0 %}row-warn{% endif %}">
+            <td><a href="/{{ row.name }}">{{ row.name }}</a></td>
+            <td>{{ row.count }}</td>
+            <td>{{ row.last_time or "-" }}</td>
+            <td>
+                {% if row.warn_count > 0 %}
+                    <span class="warn">{{ row.warn_count }} 个</span>
+                {% else %}
+                    <span class="ok">0</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if row.warn_count > 0 %}
+                    <span class="warn">⚠ 存在异常</span>
+                {% else %}
+                    <span class="ok">✅ 全部正常</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <p style="margin:20px;">
+        当前温度阈值: <b>{{ threshold }} ℃</b>
+    </p>
+</body>
+</html>

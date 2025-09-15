@@ -1,0 +1,12 @@
+<h2>{{mo}} - {{sn}} 温度曲线</h2>
+<div id="main" style="width:800px;height:400px;"></div>
+<script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+<script>
+var chart = echarts.init(document.getElementById('main'));
+var option = {
+  xAxis: { type: 'category', data: {{ times|safe }} },
+  yAxis: { type: 'value' },
+  series: [{ data: {{ temps|safe }}, type: 'line', smooth: true }]
+};
+chart.setOption(option);
+</script>

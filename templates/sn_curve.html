@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ sn }} 温度曲线</title>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+</head>
+<body>
+    <h2>
+        设备 {{ sn }} 的温度曲线 (订单: {{ mo }})
+        {% if max_temp >= threshold %}<span style="color:red;">⚠ 异常</span>{% endif %}
+    </h2>
+    <p>
+        平均温度: {{ avg_temp }} ℃，
+        最高温度: {{ max_temp }} ℃，
+        超温次数: {{ warn_count }} 次 (阈值 {{ threshold }} ℃)
+    </p>
+
+    <div id="chart" style="width:95%;height:600px;"></div>
+
+    <script>
+    var trace = {
+        x: {{ times|tojson }},
+        y: {{ temps|tojson }},
+        mode: 'lines+markers',
+        type: 'scatter',
+        line: { color: 'blue' },
+        marker: { size: 4 },
+        name: '温度 (℃)'
+    };
+
+    // 阈值线
+    var thresholdLine = {
+        type: 'line',
+        x0: 0,
+        x1: 1,
+        y0: {{ threshold }},
+        y1: {{ threshold }},
+        xref: 'paper',
+        yref: 'y',
+        line: {color: 'red', width: 2, dash: 'dot'}
+    };
+
+    var layout = {
+        title: '温度曲线',
+        dragmode: 'pan',
+        shapes: [thresholdLine],
+        xaxis: {
+            title: '时间',
+            showgrid: true,
+            zeroline: false
+        },
+        yaxis: {
+            title: '温度 (℃)',
+            showgrid: true,
+            zeroline: false
+        }
+    };
+
+    var config = {
+        responsive: true,
+        displayModeBar: true,
+        scrollZoom: true
+    };
+
+    Plotly.newPlot('chart', [trace], layout, config);
+    </script>
+
+    <p><a href="/{{ mo }}">返回 SN 列表</a></p>
+</body>
+</html>

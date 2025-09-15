@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ mo }} - SN 列表</title>
+    <style>
+        table { border-collapse: collapse; width: 95%; margin: 20px auto; font-size: 14px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        th { background: #f0f0f0; }
+        tr:nth-child(even) { background: #fafafa; }
+        tr:hover { background: #f5f5f5; }
+        .warn { color: red; font-weight: bold; }
+        .ok { color: green; }
+    </style>
+</head>
+<body>
+    <h2>订单 {{ mo }} 的 SN 列表</h2>
+    <table>
+        <tr>
+            <th>序列号 (SN)</th>
+            <th>最近心跳时间</th>
+            <th>最新温度 (℃)</th>
+            <th>状态</th>
+        </tr>
+        {% for row in sns %}
+        <tr>
+            <td><a href="/{{ mo }}/{{ row.sn }}">{{ row.sn }}</a></td>
+            <td>{{ row.last_time or "-" }}</td>
+            <td>
+                {% if row.warn %}
+                    <span class="warn">{{ row.temp }} ⚠</span>
+                {% else %}
+                    {{ row.temp or "-" }}
+                {% endif %}
+            </td>
+            <td>
+                {% if row.warn %}
+                    <span class="warn">异常</span>
+                {% else %}
+                    <span class="ok">正常</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <p style="margin:20px;">
+        温度阈值: <b>{{ threshold }} ℃</b>
+    </p>
+
+    <p style="margin:20px;">
+        <a href="/{{ mo }}/dist">📊 查看统计分析</a> | 
+        <a href="/">返回订单列表</a>
+    </p>    
+</body>
+</html>
