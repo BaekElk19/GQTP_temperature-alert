@@ -59,13 +59,25 @@ def get_mysql_conn():
 def get_sqlite_conn():
     return sqlite3.connect(CONFIG["sqlite"], timeout=30)
 
+def ensure_index(sqlite_conn, table_name):
+    """为表创建必要索引，加快查询"""
+    try:
+        cur = sqlite_conn.cursor()
+        cur.execute(f"CREATE INDEX IF NOT EXISTS idx_sn_time_{table_name} ON {table_name}(FD_INFO_SN, FD_LAST_TM)")
+        cur.execute(f"CREATE INDEX IF NOT EXISTS idx_temp_{table_name} ON {table_name}(FD_TEMPERATURE)")
+        sqlite_conn.commit()
+    except Exception as e:
+        logging.warning(f"创建索引失败 {table_name}: {e}")
+
 def ensure_table(sqlite_conn, table_name, mysql_conn):
     """确保本地 SQLite 有和远程一致的表结构（只在本地不存在时创建）"""
     cur = sqlite_conn.cursor()
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
     exists = cur.fetchone()
     if exists:
-        return  # 已存在，不需要重新建表
+        # 确保已有表也有索引
+        ensure_index(sqlite_conn, table_name)
+        return
 
     if not mysql_conn:
         logging.warning(f"无法创建表 {table_name}（MySQL 不可用）")
@@ -84,13 +96,39 @@ def ensure_table(sqlite_conn, table_name, mysql_conn):
         create_sql = re.sub(r"COMMENT\s+'[^']*'", "", create_sql, flags=re.IGNORECASE)
         create_sql = re.sub(r"USING\s+BTREE", "", create_sql, flags=re.IGNORECASE)
         create_sql = create_sql.replace("`", "")  # 去掉反引号
+        create_sql = re.sub(r"COLLATE\s+\w+", "", create_sql, flags=re.IGNORECASE)
 
         try:
             sqlite_conn.execute(create_sql)
             sqlite_conn.commit()
             logging.info(f"本地新建表 {table_name}")
+            # 新建表后立刻加索引
+            ensure_index(sqlite_conn, table_name)
         except Exception as e:
             logging.error(f"创建表 {table_name} 失败: {e}\nSQL: {create_sql}")
+
+def update_summary(sqlite_conn, table_name):
+    """更新订单汇总信息到 mo_summary 表"""
+    sqlite_conn.execute("""
+        CREATE TABLE IF NOT EXISTS mo_summary (
+            mo_name TEXT PRIMARY KEY,
+            device_count INTEGER,
+            last_time TEXT,
+            warn_count INTEGER
+        )
+    """)
+    sqlite_conn.execute(f"""
+        INSERT OR REPLACE INTO mo_summary(mo_name, device_count, last_time, warn_count)
+        VALUES (
+            ?,
+            (SELECT COUNT(DISTINCT FD_INFO_SN) FROM {table_name}),
+            (SELECT MAX(FD_LAST_TM) FROM {table_name}),
+            (SELECT COUNT(DISTINCT FD_INFO_SN) 
+               FROM {table_name} 
+              WHERE FD_TEMPERATURE >= ?)
+        )
+    """, (table_name, CONFIG["temperature_threshold"]))
+    sqlite_conn.commit()
 
 def sync_table(table_name, last_time):
     """同步单个表的数据，并在同步时做温度预警（只预警当天数据）"""
@@ -111,12 +149,17 @@ def sync_table(table_name, last_time):
         col_names = [desc[0] for desc in cur.description]
 
         if rows:
-            # 插入 SQLite（避免重复 ID 报错）
             placeholders = ",".join(["?"] * len(rows[0]))
             sqlite_conn.executemany(
                 f"INSERT OR IGNORE INTO {table_name} VALUES ({placeholders})", rows
             )
             sqlite_conn.commit()
+
+            # 确保插入数据后索引存在
+            ensure_index(sqlite_conn, table_name)
+
+            # 更新汇总表
+            update_summary(sqlite_conn, table_name)
 
             # 温度预警（只处理当天数据）
             if {"FD_INFO_SN", "FD_TEMPERATURE", "FD_LAST_TM"}.issubset(col_names):
@@ -124,7 +167,7 @@ def sync_table(table_name, last_time):
                 temp_idx = col_names.index("FD_TEMPERATURE")
                 time_idx = col_names.index("FD_LAST_TM")
 
-                today_str = str(date.today())  # 比如 "2025-09-15"
+                today_str = str(date.today())
 
                 for r in rows:
                     sn = r[sn_idx]

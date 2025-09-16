@@ -15,6 +15,14 @@
 </head>
 <body>
     <h2>订单 {{ mo }} 的 SN 列表</h2>
+    <p style="margin:20px;">
+        温度阈值: <b>{{ threshold }} ℃</b>
+    </p>
+
+    <p style="margin:20px;">
+        <a href="/{{ mo }}/dist">📊 查看统计分析</a> | 
+        <a href="/">返回订单列表</a>
+    </p>
     <table>
         <tr>
             <th>序列号 (SN)</th>
@@ -42,15 +50,6 @@
             </td>
         </tr>
         {% endfor %}
-    </table>
-
-    <p style="margin:20px;">
-        温度阈值: <b>{{ threshold }} ℃</b>
-    </p>
-
-    <p style="margin:20px;">
-        <a href="/{{ mo }}/dist">📊 查看统计分析</a> | 
-        <a href="/">返回订单列表</a>
-    </p>    
+    </table>      
 </body>
 </html>

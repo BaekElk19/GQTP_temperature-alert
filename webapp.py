@@ -27,40 +27,47 @@ def query(sql, params=()):
     return rows
 
 
+def ensure_index(table):
+    """为表创建必要索引，加快查询速度"""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(f"CREATE INDEX IF NOT EXISTS idx_sn_time_{table} ON {table}(FD_INFO_SN, FD_LAST_TM)")
+        cur.execute(f"CREATE INDEX IF NOT EXISTS idx_temp_{table} ON {table}(FD_TEMPERATURE)")
+        conn.commit()
+    except Exception as e:
+        print(f"⚠️ 创建索引失败 {table}: {e}")
+    conn.close()
+
+
 @app.route("/")
 def index():
-    tables = query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'tb_tt_tboard_mo%'")
+    rows = query("SELECT mo_name, device_count, last_time, warn_count FROM mo_summary")
     result = []
-    for t in tables:
-        mo = t[0]
-        count = query(f"SELECT COUNT(DISTINCT FD_INFO_SN) FROM {mo}")[0][0]
-        last_time = query(f"SELECT MAX(FD_LAST_TM) FROM {mo}")[0][0]
-
-        # 异常 SN 数量
-        warn_count = query(f"""
-            SELECT COUNT(DISTINCT FD_INFO_SN) 
-            FROM {mo} 
-            WHERE FD_TEMPERATURE >= ?
-        """, (CONFIG["temperature_threshold"],))[0][0]
-
+    for r in rows:
         result.append({
-            "name": mo,
-            "count": count,
-            "last_time": last_time,
-            "warn_count": warn_count
+            "name": r[0],
+            "count": r[1],
+            "last_time": r[2],
+            "warn_count": r[3]
         })
     return render_template("index.html", mos=result, threshold=CONFIG["temperature_threshold"])
 
 
 
-
-
 @app.route("/<mo>")
 def sn_list(mo):
+    ensure_index(mo)
+    # 子查询 + JOIN，避免重复扫描
     rows = query(f"""
-        SELECT FD_INFO_SN, MAX(FD_LAST_TM), MAX(FD_TEMPERATURE)
-        FROM {mo}
-        GROUP BY FD_INFO_SN
+        SELECT s.FD_INFO_SN, s.FD_LAST_TM, t.FD_TEMPERATURE
+        FROM (
+            SELECT FD_INFO_SN, MAX(FD_LAST_TM) AS FD_LAST_TM
+            FROM {mo}
+            GROUP BY FD_INFO_SN
+        ) s
+        LEFT JOIN {mo} t
+        ON s.FD_INFO_SN = t.FD_INFO_SN AND s.FD_LAST_TM = t.FD_LAST_TM
     """)
     sns = []
     for r in rows:
@@ -74,17 +81,26 @@ def sn_list(mo):
     return render_template("sn_list.html", mo=mo, sns=sns, threshold=CONFIG["temperature_threshold"])
 
 
-
 @app.route("/<mo>/<sn>")
 def sn_curve(mo, sn):
+    ensure_index(mo)
+    # 只取最近 2000 条，避免浏览器卡死
     rows = query(
-        f"SELECT FD_LAST_TM, FD_TEMPERATURE FROM {mo} WHERE FD_INFO_SN=? ORDER BY FD_LAST_TM ASC",
+        f"""
+        SELECT FD_LAST_TM, FD_TEMPERATURE
+        FROM {mo}
+        WHERE FD_INFO_SN=?
+        ORDER BY FD_LAST_TM DESC
+        LIMIT 2000
+        """,
         (sn,)
     )
+    rows = rows[::-1]  # 翻转为升序
+
     times = [r[0] for r in rows]
     temps = [r[1] for r in rows]
 
-    avg_temp = sum(temps)/len(temps) if temps else 0
+    avg_temp = sum(temps) / len(temps) if temps else 0
     max_temp = max(temps) if temps else 0
     warn_count = sum(1 for t in temps if t is not None and t >= CONFIG["temperature_threshold"])
 
@@ -101,27 +117,25 @@ def sn_curve(mo, sn):
     )
 
 
-
 @app.route("/favicon.ico")
 def favicon():
-    # 避免 favicon 请求误入 SQL 路由
     return "", 204
 
 
 @app.route("/status")
 def status():
-    # 本地表数量
     tables = query("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'tb_tt_tboard_mo%'")
     table_count = len(tables)
-
     return {
         "online": system_status["online"],
         "last_sync": system_status["last_sync"],
         "local_tables": table_count
     }
 
+
 @app.route("/<mo>/dist")
 def sn_temp_distribution(mo):
+    ensure_index(mo)
     # 每台 SN 的最高温度
     rows = query(f"""
         SELECT FD_INFO_SN, MAX(FD_TEMPERATURE)
@@ -131,18 +145,20 @@ def sn_temp_distribution(mo):
     sns = [r[0] for r in rows if r[0] is not None]
     max_temps = {r[0]: r[1] for r in rows if r[0] is not None and r[1] is not None}
 
-    # 每台 SN 的前 20 分钟升温速度
+    # 每台 SN 的前 20 分钟升温速度（限制范围，避免全量扫描）
     rise_rates = {}
     for sn in sns:
         sub = query(f"""
-            SELECT FD_LAST_TM, FD_TEMPERATURE 
-            FROM {mo} 
+            SELECT FD_LAST_TM, FD_TEMPERATURE
+            FROM {mo}
             WHERE FD_INFO_SN=? 
+              AND FD_LAST_TM <= DATETIME(
+                  (SELECT MIN(FD_LAST_TM) FROM {mo} WHERE FD_INFO_SN=?), '+20 minutes'
+              )
             ORDER BY FD_LAST_TM ASC
-        """, (sn,))
+        """, (sn, sn))
         if len(sub) >= 2:
             try:
-                # 转换第一个时间
                 t0 = datetime.fromisoformat(str(sub[0][0]))
                 temp0 = sub[0][1]
                 t_end, temp_end = None, None
@@ -152,7 +168,6 @@ def sn_temp_distribution(mo):
                     try:
                         t_dt = datetime.fromisoformat(str(t))
                     except Exception:
-                        # 兼容格式：2025-09-15 19:00:00
                         t_dt = datetime.strptime(str(t), "%Y-%m-%d %H:%M:%S")
                     if (t_dt - t0).total_seconds() <= 20 * 60:
                         t_end, temp_end = t_dt, temp
@@ -163,7 +178,6 @@ def sn_temp_distribution(mo):
             except Exception:
                 continue
 
-    # 散点图数据
     scatter_x, scatter_y, scatter_labels = [], [], []
     for sn in sns:
         if sn in rise_rates and sn in max_temps:

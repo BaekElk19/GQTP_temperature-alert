@@ -1,9 +1,9 @@
 {
     "mysql": {
-      "host": "11.0.2.160",
+      "host": "172.100.41.9",
       "port": 3306,
-      "user": "tms",
-      "password": "123456",
+      "user": "chker",
+      "password": "GQTP_checker",
       "database": "tms"
     },
     "sqlite": "local_cache.db",
